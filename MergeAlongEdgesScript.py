@@ -1,12 +1,7 @@
 import pymel.core as pm
 import maya.cmds as cmds
-import maya.OpenMaya as om
-import types
-import numbers
-import os
 import math
-import traceback
-from PySide6.QtWidgets import QWidget
+
 
 class UnitScaling(object):
     def __init__(self):
@@ -38,6 +33,7 @@ class UnitScaling(object):
 
         else:
             assert False
+
 
 def checkType(var, *expectedTypes, **kwargs):
     """ Check whether passed variable has the expected type.
@@ -122,7 +118,7 @@ def checkType(var, *expectedTypes, **kwargs):
 
     # Developer's note, if you want the noEmptyCollection to apply recursively, use get() instead of pop().
     noEmptyCollection = kwargs.pop("noEmptyCollection", False)
-    assert(isinstance(noEmptyCollection, bool))
+    assert (isinstance(noEmptyCollection, bool))
 
     if noEmptyCollection:
         if isinstance(var, (list, set, frozenset, dict)):
@@ -190,81 +186,82 @@ def _dValue(p1, p2, p3, p4):
 
     return (p1.x - p2.x) * (p3.x - p4.x) + (p1.y - p2.y) * (p3.y - p4.y) + (p1.z - p2.z) * (p3.z - p4.z)
 
+
 def getShortestLineSegmentBetweenTwoLines(edge1, edge2):
-    
-    checkType(edge1, pm.MeshEdge) #Check script CHECKTYP!
+    checkType(edge1, pm.MeshEdge)  # Check script CHECKTYP!
     checkType(edge2, pm.MeshEdge)
-    
+
     p1 = edge1.getPoint(0, "world")
     p2 = edge1.getPoint(1, "world")
     p3 = edge2.getPoint(0, "world")
     p4 = edge2.getPoint(1, "world")
-    
-    d1343 = _dValue(p1, p3, p4, p3) #Check script _dValue!
+
+    d1343 = _dValue(p1, p3, p4, p3)  # Check script _dValue!
     d4321 = _dValue(p4, p3, p2, p1)
     d4343 = _dValue(p4, p3, p4, p3)
     d1321 = _dValue(p1, p3, p2, p1)
     d2121 = _dValue(p2, p1, p2, p1)
-    
+
     muaDenominator = (d2121 * d4343 - d4321 * d4321)
     mubDenominator = d4343
-    
+
     if math.isclose(muaDenominator, 0.0, abs_tol=1e-5) or math.isclose(mubDenominator, 0.0, abs_tol=1e-5):
         pm.error("The lines are parallel, there are infinite possibilities for the shortest connecting line segment.")
-        
+
     mua = (d1343 * d4321 - d1321 * d4343) / muaDenominator
     mub = (d1343 + mua * d4321) / mubDenominator
-    
+
     sp1 = (1 - mua) * p1 + mua * p2
     sp2 = (1 - mub) * p3 + mub * p4
-    
+
     return (sp1, sp2)
-    
+
+
 def mergeVerticesClosestToEdgeIntersection():
-    
     sel = pm.selected(flatten=True)
     if len(sel) != 2 or not all([isinstance(n, pm.MeshEdge) for n in sel]):
         pm.error("Exactly two edges must be selected for this operation!")
-    
+
     edge1 = sel[0]
     edge2 = sel[1]
-    
+
     if edge1.node() != edge2.node():
         pm.warning("The edges belong to two different meshes, they will be aligned, but not merged!")
 
     sp1, sp2 = getShortestLineSegmentBetweenTwoLines(edge1, edge2)
-    
+
     sp = (sp1 + sp2) / 2
-    
+
     p1 = edge1.getPoint(0, "world")
     p2 = edge1.getPoint(1, "world")
     p3 = edge2.getPoint(0, "world")
     p4 = edge2.getPoint(1, "world")
-    
+
     sp1p1 = pm.dt.Vector(sp1 - p1)
     sp1p2 = pm.dt.Vector(sp1 - p2)
     if sp1p1.length() < sp1p2.length():
         v1Index = 0
     else:
         v1Index = 1
-        
+
     sp2p3 = pm.dt.Vector(sp2 - p3)
     sp2p4 = pm.dt.Vector(sp2 - p4)
     if sp2p3.length() < sp2p4.length():
         v2Index = 0
     else:
         v2Index = 1
-        
+
     v1 = edge1.connectedVertices()[v1Index]
     v2 = edge2.connectedVertices()[v2Index]
-    
-    unitScaling = UnitScaling() #Check function UnitScaling()!
+
+    unitScaling = UnitScaling()
     sp = sp * unitScaling.cmToLinear
-    
+
     pm.move(v1, sp)
     pm.move(v2, sp)
-    
+
     if v1.node() == v2.node():
         pm.polyMergeVertex(v1, v2, alwaysMergeTwoVertices=True)
-    
+
+
 mergeVerticesClosestToEdgeIntersection()
