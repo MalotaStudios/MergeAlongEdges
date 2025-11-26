@@ -1,0 +1,90 @@
+import maya.cmds as cmds
+import math
+
+def _dValue(p1, p2, p3, p4):
+    return (p1[0] - p2[0]) * (p3[0] - p4[0]) + (p1[1] - p2[1]) * (p3[1] - p4[1]) + (p1[2] - p2[2]) * (p3[2] - p4[2])
+
+def getShortestLineSegmentBetweenTwoLines(edge1, edge2):
+    verts1 = cmds.ls(cmds.polyListComponentConversion(edge1, toVertex=True), fl=True)
+    p1 = cmds.pointPosition(verts1[0], w=True)
+    p2 = cmds.pointPosition(verts1[1], w=True)
+    verts2 = cmds.ls(cmds.polyListComponentConversion(edge2, toVertex=True), fl=True)
+    p3 = cmds.pointPosition(verts2[0], w=True)
+    p4 = cmds.pointPosition(verts2[1], w=True)
+
+    d1343 = _dValue(p1, p3, p4, p3)
+    d4321 = _dValue(p4, p3, p2, p1)
+    d4343 = _dValue(p4, p3, p4, p3)
+    d1321 = _dValue(p1, p3, p2, p1)
+    d2121 = _dValue(p2, p1, p2, p1)
+
+    muaDenominator = (d2121 * d4343 - d4321 * d4321)
+    mubDenominator = d4343
+
+    if math.isclose(muaDenominator, 0.0, abs_tol=1e-5) or math.isclose(mubDenominator, 0.0, abs_tol=1e-5):
+        cmds.error("The lines are parallel, there are infinite possibilities for the shortest connecting line segment.")
+
+    mua = (d1343 * d4321 - d1321 * d4343) / muaDenominator
+    mub = (d1343 + mua * d4321) / mubDenominator
+
+    sp1 = [(1 - mua) * p1[i] + mua * p2[i] for i in range(3)]
+    sp2 = [(1 - mub) * p3[i] + mub * p4[i] for i in range(3)]
+
+    return (sp1, sp2)
+
+def mergeVerticesClosestToEdgeIntersection():
+    sel = cmds.ls(sl=True, fl=True)
+    if len(sel) != 2 or not all('.e[' in s for s in sel):
+        cmds.error("Exactly two edges must be selected for this operation!")
+
+    edge1 = sel[0]
+    edge2 = sel[1]
+
+    mesh1 = edge1.rsplit('.', 1)[0]
+    mesh2 = edge2.rsplit('.', 1)[0]
+
+    if mesh1 != mesh2:
+        cmds.warning("The edges belong to two different meshes, they will be aligned, but not merged!")
+
+    sp1, sp2 = getShortestLineSegmentBetweenTwoLines(edge1, edge2)
+
+    sp = [(sp1[i] + sp2[i]) / 2 for i in range(3)]
+
+    verts1 = cmds.ls(cmds.polyListComponentConversion(edge1, toVertex=True), fl=True)
+    p1 = cmds.pointPosition(verts1[0], w=True)
+    p2 = cmds.pointPosition(verts1[1], w=True)
+
+    verts2 = cmds.ls(cmds.polyListComponentConversion(edge2, toVertex=True), fl=True)
+    p3 = cmds.pointPosition(verts2[0], w=True)
+    p4 = cmds.pointPosition(verts2[1], w=True)
+
+    def subtract(v1, v2):
+        return [v1[i] - v2[i] for i in range(3)]
+
+    def length(v):
+        return math.sqrt(sum(x**2 for x in v))
+
+    sp1p1 = subtract(sp1, p1)
+    sp1p2 = subtract(sp1, p2)
+    if length(sp1p1) < length(sp1p2):
+        v1Index = 0
+    else:
+        v1Index = 1
+
+    sp2p3 = subtract(sp2, p3)
+    sp2p4 = subtract(sp2, p4)
+    if length(sp2p3) < length(sp2p4):
+        v2Index = 0
+    else:
+        v2Index = 1
+
+    v1 = verts1[v1Index]
+    v2 = verts2[v2Index]
+
+    cmds.move(sp[0], sp[1], sp[2], v1)
+    cmds.move(sp[0], sp[1], sp[2], v2)
+
+    if mesh1 == mesh2:
+        cmds.polyMergeVertex(v1, v2, am=True)
+
+mergeVerticesClosestToEdgeIntersection()
