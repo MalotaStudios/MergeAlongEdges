@@ -1,112 +1,71 @@
-// Helper procedure: Calculates the dot-product-like 'd' value used in shortest line computation
-proc float dValue(float $p1[], float $p2[], float $p3[], float $p4[]) {
-    return ($p1[0] - $p2[0]) * ($p3[0] - $p4[0]) + 
-           ($p1[1] - $p2[1]) * ($p3[1] - $p4[1]) + 
-           ($p1[2] - $p2[2]) * ($p3[2] - $p4[2]);
+proc vector toVec(float $f[]) {
+    return <<$f[0], $f[1], $f[2]>>;
 }
 
-// Helper procedure: Calculates squared distance between two 3D points
-proc float distSq(float $p1[], float $p2[]) {
-    float $dx = $p1[0] - $p2[0];
-    float $dy = $p1[1] - $p2[1];
-    float $dz = $p1[2] - $p2[2];
-    return ($dx * $dx + $dy * $dy + $dz * $dz);
+proc vector blendVec(vector $a, vector $b, float $t) {
+    return $a + ($b - $a) * $t;
 }
 
-// Main procedure: Aligns and merges vertices closest to the intersection of two edges
-global proc mergeVerticesClosestToEdgeIntersection() {
-    // 1. Get selected edges (Selection Mask 32 = Polygon Edges)
-    string $sel[] = `filterExpand -sm 32 -ex true`;
-    if (size($sel) != 2) {
-        error "Exactly two polygon edges must be selected for this operation!";
-    }
-
-    string $edge1 = $sel[0];
-    string $edge2 = $sel[1];
-
-    // 2. Extract mesh node names
-    string $buffer[];
-    tokenize $edge1 "." $buffer;
-    string $node1 = $buffer[0];
-
-    tokenize $edge2 "." $buffer;
-    string $node2 = $buffer[0];
-
-    if ($node1 != $node2) {
-        warning "The edges belong to two different meshes; they will be aligned, but not merged!";
-    }
-
-    // 3. Get connected vertices for both edges
-    string $edge1VtxRaw[] = `polyListComponentConversion -fromEdge -toVertex $edge1`;
-    string $edge1Vtx[]    = `ls -fl $edge1VtxRaw`;
-
-    string $edge2VtxRaw[] = `polyListComponentConversion -fromEdge -toVertex $edge2`;
-    string $edge2Vtx[]    = `ls -fl $edge2VtxRaw`;
-
-    // 4. Query world-space coordinates of the edge endpoints
-    float $p1[] = `pointPosition -w $edge1Vtx[0]`;
-    float $p2[] = `pointPosition -w $edge1Vtx[1]`;
-    float $p3[] = `pointPosition -w $edge2Vtx[0]`;
-    float $p4[] = `pointPosition -w $edge2Vtx[1]`;
-
-    // 5. Compute shortest line segment between the two lines
-    float $d1343 = dValue($p1, $p3, $p4, $p3);
-    float $d4321 = dValue($p4, $p3, $p2, $p1);
-    float $d4343 = dValue($p4, $p3, $p4, $p3);
-    float $d1321 = dValue($p1, $p3, $p2, $p1);
-    float $d2121 = dValue($p2, $p1, $p2, $p1);
-
-    float $muaDenom = ($d2121 * $d4343 - $d4321 * $d4321);
-    float $mubDenom = $d4343;
-
-    if (abs($muaDenom) < 1e-5 || abs($mubDenom) < 1e-5) {
-        error "The lines are parallel; there are infinite possibilities for the shortest connecting line segment.";
-    }
-
-    float $mua = ($d1343 * $d4321 - $d1321 * $d4343) / $muaDenom;
-    float $mub = ($d1343 + $mua * $d4321) / $mubDenom;
-
-    // Shortest line segment points on each edge line
-    float $sp1[] = {
-        (1.0 - $mua) * $p1[0] + $mua * $p2[0],
-        (1.0 - $mua) * $p1[1] + $mua * $p2[1],
-        (1.0 - $mua) * $p1[2] + $mua * $p2[2]
-    };
-
-    float $sp2[] = {
-        (1.0 - $mub) * $p3[0] + $mub * $p4[0],
-        (1.0 - $mub) * $p3[1] + $mub * $p4[1],
-        (1.0 - $mub) * $p3[2] + $mub * $p4[2]
-    };
-
-    // Midpoint between the shortest connecting segment
-    float $sp[] = {
-        ($sp1[0] + $sp2[0]) / 2.0,
-        ($sp1[1] + $sp2[1]) / 2.0,
-        ($sp1[2] + $sp2[2]) / 2.0
-    };
-
-    // 6. Find the vertex closest to the intersection point for Edge 1
-    string $v1 = $edge1Vtx[1];
-    if (distSq($sp1, $p1) < distSq($sp1, $p2)) {
-        $v1 = $edge1Vtx[0];
-    }
-
-    // Find the vertex closest to the intersection point for Edge 2
-    string $v2 = $edge2Vtx[1];
-    if (distSq($sp2, $p3) < distSq($sp2, $p4)) {
-        $v2 = $edge2Vtx[0];
-    }
-
-    // 7. Move both closest vertices to the computed midpoint
-    move -ws -a $sp[0] $sp[1] $sp[2] $v1;
-    move -ws -a $sp[0] $sp[1] $sp[2] $v2;
-
-    // 8. Merge vertices if they belong to the same mesh
-    if ($node1 == $node2) {
-        polyMergeVertex -alwaysMergeTwoVertices true $v1 $v2;
-    }
+proc vector[] nearestPairOnLines(vector $aStart, vector $aEnd, vector $bStart, vector $bEnd) {
+    vector $dirA = $aEnd - $aStart;
+    vector $dirB = $bEnd - $bStart;
+    vector $offset = $aStart - $bStart;
+    float $aa = dot($dirA, $dirA);
+    float $bb = dot($dirB, $dirB);
+    float $ab = dot($dirA, $dirB);
+    float $ao = dot($dirA, $offset);
+    float $bo = dot($dirB, $offset);
+    if ($aa < 1e-12 || $bb < 1e-12)
+        error "One of the selected edges has zero length.";
+    float $det = $aa * $bb - $ab * $ab;
+    if ($det <= 1e-9 * $aa * $bb)
+        error "The edges are parallel, so they have no single crossing point.";
+    float $s = ($ab * $bo - $bb * $ao) / $det;
+    float $t = ($aa * $bo - $ab * $ao) / $det;
+    vector $result[];
+    $result[0] = blendVec($aStart, $aEnd, $s);
+    $result[1] = blendVec($bStart, $bEnd, $t);
+    return $result;
 }
 
-// Execute the procedure
-mergeVerticesClosestToEdgeIntersection();
+proc string[] edgeEnds(string $edge) {
+    string $raw[] = `polyListComponentConversion -fromEdge -toVertex $edge`;
+    return `ls -flatten $raw`;
+}
+
+global proc weldEdgeCrossing() {
+    string $picked[] = `filterExpand -selectionMask 32 -expand true`;
+    if (size($picked) != 2)
+        error "Select exactly two polygon edges.";
+
+    string $partsA[];
+    string $partsB[];
+    tokenize $picked[0] "." $partsA;
+    tokenize $picked[1] "." $partsB;
+    int $sameMesh = ($partsA[0] == $partsB[0]);
+    if (!$sameMesh)
+        warning "The edges are on different meshes, so the vertices will be aligned but not merged.";
+
+    string $vertsA[] = edgeEnds($picked[0]);
+    string $vertsB[] = edgeEnds($picked[1]);
+    vector $a0 = toVec(`pointPosition -world $vertsA[0]`);
+    vector $a1 = toVec(`pointPosition -world $vertsA[1]`);
+    vector $b0 = toVec(`pointPosition -world $vertsB[0]`);
+    vector $b1 = toVec(`pointPosition -world $vertsB[1]`);
+
+    vector $hits[] = nearestPairOnLines($a0, $a1, $b0, $b1);
+    vector $target = blendVec($hits[0], $hits[1], 0.5);
+
+    string $vertA = (mag($hits[0] - $a0) < mag($hits[0] - $a1)) ? $vertsA[0] : $vertsA[1];
+    string $vertB = (mag($hits[1] - $b0) < mag($hits[1] - $b1)) ? $vertsB[0] : $vertsB[1];
+
+    undoInfo -openChunk -chunkName "weldEdgeCrossing";
+    move -absolute -worldSpace ($target.x) ($target.y) ($target.z) $vertA;
+    if ($vertB != $vertA)
+        move -absolute -worldSpace ($target.x) ($target.y) ($target.z) $vertB;
+    if ($sameMesh && $vertA != $vertB)
+        polyMergeVertex -alwaysMergeTwoVertices true $vertA $vertB;
+    undoInfo -closeChunk;
+}
+
+weldEdgeCrossing();
