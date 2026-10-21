@@ -1,0 +1,1 @@
+Select two non-parallel edges and run the script. It extends both edges until they meet, moves the nearest vertex of each edge to that crossing point, and merges them into one vertex. If the edges are on different meshes, the vertices are moved to the crossing point and merge if it's one object.
